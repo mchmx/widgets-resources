@@ -1,4 +1,4 @@
-name: Run automated end-to-end tests
+name: Run native automated end-to-end tests
 
 on:
     push:
@@ -10,8 +10,8 @@ on:
         paths: "packages/pluggableWidgets/*-native/**/*"
 
 jobs:
-    test:
-        name: "Automated tests"
+    native_automated_tests:
+        name: "Native automated tests"
         runs-on: ubuntu-latest
         permissions:
             packages: read
@@ -62,7 +62,7 @@ jobs:
                   path: ~/.npm
                   key: ${{ runner.os }}-build-${{ env.cache-name }}-${{ hashFiles('**/package-lock.json') }}
             - name: "Installing dependencies"
-              run: npm install
+              run: npm install && npm run postinstall
             - name: Login to GitHub Container Registry
               if:
                   github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name ==
