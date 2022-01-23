@@ -1,5 +1,5 @@
 {
-    "include": ["./release", "./svn", "./types", "./data"],
+    "include": ["./release", "./svn", "./types"],
     "compilerOptions": {
         "strict": true,
         "noEmitOnError": true,
