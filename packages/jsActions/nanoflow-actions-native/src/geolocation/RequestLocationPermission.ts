@@ -4,8 +4,9 @@
 // - the code between BEGIN USER CODE and END USER CODE
 // Other code you write will be lost the next time you deploy the project.
 
-import { PermissionsAndroid, Platform } from "react-native";
+import { PermissionsAndroid, Platform, NativeModules, Linking, Alert, ToastAndroid } from "react-native";
 import Geolocation, { GeolocationStatic } from "@react-native-community/geolocation";
+import { GeolocationServiceStatic, AuthorizationResult } from "../../typings/Geolocation";
 
 /**
  * On the native platform a request for permission should be made before the `GetCurrentLocation` action would work.
@@ -14,11 +15,97 @@ import Geolocation, { GeolocationStatic } from "@react-native-community/geolocat
 export async function RequestLocationPermission(): Promise<boolean> {
     // BEGIN USER CODE
 
+    let rnGeolocation: GeolocationServiceStatic | GeolocationStatic;
+
     if (navigator && navigator.product === "ReactNative") {
-        if (!navigator.geolocation) {
-            (navigator.geolocation as GeolocationStatic) = Geolocation;
+        if (NativeModules.RNFusedLocation) {
+            const geolocationService = await import("react-native-geolocation-service");
+            rnGeolocation = geolocationService.default;
+        } else if (NativeModules.RNCGeolocation) {
+            rnGeolocation = Geolocation;
+        } else {
+            return Promise.reject(new Error("Geolocation module couldn't find"));
+        }
+    } else if (navigator && navigator.geolocation) {
+        rnGeolocation = navigator.geolocation;
+    } else {
+        return Promise.reject(new Error("Navigator couldn't find"));
+    }
+
+    const hasPermissionIOS = async (): Promise<boolean> => {
+        const openSetting = (): void => {
+            Linking.openSettings().catch(() => {
+                Alert.alert("Unable to open settings.");
+            });
+        };
+
+        if (!rnGeolocation?.requestAuthorization) {
+            return Promise.reject(new Error("requestAuthorization is undefined"));
         }
 
+        return rnGeolocation.requestAuthorization("whenInUse").then((status: AuthorizationResult) => {
+            if (status === "granted") {
+                return true;
+            }
+
+            if (status === "denied") {
+                Alert.alert("Location permission denied.");
+            }
+
+            if (status === "disabled") {
+                Alert.alert("Turn on Location Services to allow to determine your location.", "", [
+                    { text: "Go to Settings", onPress: openSetting },
+                    {
+                        text: "Don't Use Location"
+                    }
+                ]);
+            }
+
+            return false;
+        });
+    };
+
+    const hasPermissionAndroid = async (): Promise<boolean> => {
+        if (Platform.Version < 23) {
+            return true;
+        }
+
+        const androidLocationPermission = PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
+
+        return PermissionsAndroid.check(androidLocationPermission).then(hasPermission =>
+            hasPermission
+                ? true
+                : PermissionsAndroid.request(androidLocationPermission).then(status => {
+                      if (status === PermissionsAndroid.RESULTS.GRANTED) {
+                          return true;
+                      }
+
+                      if (status === PermissionsAndroid.RESULTS.DENIED) {
+                          ToastAndroid.show("Location permission denied by user.", ToastAndroid.LONG);
+                      } else if (status === PermissionsAndroid.RESULTS.NEVER_ASK_AGAIN) {
+                          ToastAndroid.show("Location permission revoked by user.", ToastAndroid.LONG);
+                      }
+
+                      return false;
+                  })
+        );
+    };
+
+    const hasLocationPermission = async (): Promise<boolean> => {
+        if (Platform.OS === "ios") {
+            const hasPermission = await hasPermissionIOS();
+            return hasPermission;
+        }
+
+        if (Platform.OS === "android") {
+            const hasPermission = await hasPermissionAndroid();
+            return hasPermission;
+        }
+
+        return Promise.reject(new Error("Unsupported platform"));
+    };
+
+    const hasLocationPermissionForOldLibrary = async (): Promise<boolean> => {
         if (Platform.OS === "android") {
             const locationPermission = PermissionsAndroid.PERMISSIONS.ACCESS_FINE_LOCATION;
 
@@ -29,13 +116,25 @@ export async function RequestLocationPermission(): Promise<boolean> {
                           status => status === PermissionsAndroid.RESULTS.GRANTED
                       )
             );
-        } else if (navigator.geolocation && (navigator.geolocation as GeolocationStatic).requestAuthorization) {
+        } else if (rnGeolocation && rnGeolocation.requestAuthorization) {
             try {
-                (navigator.geolocation as GeolocationStatic).requestAuthorization();
+                rnGeolocation.requestAuthorization();
                 return Promise.resolve(true);
             } catch (error) {
                 return Promise.reject(error);
             }
+        }
+
+        return false;
+    };
+
+    if (navigator && navigator.product === "ReactNative") {
+        if (NativeModules.RNFusedLocation) {
+            return hasLocationPermission();
+        } else if (NativeModules.RNCGeolocation) {
+            return hasLocationPermissionForOldLibrary();
+        } else {
+            return Promise.reject(new Error("Module couldn't find"));
         }
     }
 

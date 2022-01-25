@@ -5,11 +5,14 @@
 // Other code you write will be lost the next time you deploy the project.
 
 import { Big } from "big.js";
+import { Platform, NativeModules } from "react-native";
 import Geolocation, {
     GeolocationError,
     GeolocationOptions,
-    GeolocationResponse
+    GeolocationResponse,
+    GeolocationStatic
 } from "@react-native-community/geolocation";
+import { GeolocationServiceStatic, GeoError, GeoPosition, GeoOptions } from "../../typings/Geolocation";
 
 /**
  * This action retrieves the current geographical position of a user/device.
@@ -32,15 +35,28 @@ export async function GetCurrentLocation(
 ): Promise<mendix.lib.MxObject> {
     // BEGIN USER CODE
 
-    if (navigator && navigator.product === "ReactNative" && !navigator.geolocation) {
-        (navigator.geolocation as any) = Geolocation;
+    let rnGeolocation: GeolocationServiceStatic | GeolocationStatic;
+
+    if (navigator && navigator.product === "ReactNative") {
+        if (NativeModules.RNFusedLocation) {
+            const geolocationService = await import("react-native-geolocation-service");
+            rnGeolocation = geolocationService.default;
+        } else if (NativeModules.RNCGeolocation) {
+            rnGeolocation = Geolocation;
+        } else {
+            return Promise.reject(new Error("Geolocation module couldn't find"));
+        }
+    } else if (navigator && navigator.geolocation) {
+        rnGeolocation = navigator.geolocation;
+    } else {
+        return Promise.reject(new Error("Navigator couldn't find"));
     }
 
     return new Promise((resolve, reject) => {
         const options = getOptions();
-        navigator.geolocation.getCurrentPosition(onSuccess, onError, options);
+        rnGeolocation.getCurrentPosition(onSuccess, onError, options);
 
-        function onSuccess(position: GeolocationResponse): void {
+        function onSuccess(position: GeolocationResponse | GeoPosition): void {
             mx.data.create({
                 entity: "NanoflowCommons.Geolocation",
                 callback: mxObject => {
@@ -52,13 +68,19 @@ export async function GetCurrentLocation(
             });
         }
 
-        function onError(error: GeolocationError): void {
+        function onError(error: GeolocationError | GeoError): void {
             return reject(new Error(error.message));
         }
 
-        function getOptions(): GeolocationOptions {
-            const timeoutNumber = timeout && Number(timeout.toString());
+        function getOptions(): GeolocationOptions | GeoOptions {
+            let timeoutNumber = timeout && Number(timeout.toString());
             const maximumAgeNumber = maximumAge && Number(maximumAge.toString());
+
+            if (timeoutNumber === undefined && Platform.OS === "ios") {
+                timeoutNumber = 30000;
+            } else if (timeoutNumber === 0) {
+                timeoutNumber = 3600000;
+            }
 
             return {
                 timeout: timeoutNumber,
@@ -69,7 +91,7 @@ export async function GetCurrentLocation(
 
         function mapPositionToMxObject(
             mxObject: mendix.lib.MxObject,
-            position: GeolocationResponse
+            position: GeolocationResponse | GeoPosition
         ): mendix.lib.MxObject {
             mxObject.set("Timestamp", new Date(position.timestamp));
             mxObject.set("Latitude", new Big(position.coords.latitude.toFixed(8)));

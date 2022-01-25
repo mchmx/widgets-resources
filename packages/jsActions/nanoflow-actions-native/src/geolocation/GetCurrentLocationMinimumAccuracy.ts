@@ -5,11 +5,14 @@
 // Other code you write will be lost the next time you deploy the project.
 
 import { Big } from "big.js";
+import { Platform, NativeModules } from "react-native";
 import Geolocation, {
     GeolocationError,
     GeolocationOptions,
-    GeolocationResponse
+    GeolocationResponse,
+    GeolocationStatic
 } from "@react-native-community/geolocation";
+import { GeolocationServiceStatic, GeoError, GeoPosition, GeoOptions } from "../../typings/Geolocation";
 
 /**
  * This action retrieves the current geographical position of a user/device with a minimum accuracy as parameter. If a position is not acquired with minimum accuracy within a specific timeout it will retrieve the last most precise location.
@@ -34,8 +37,21 @@ export async function GetCurrentLocationMinimumAccuracy(
 ): Promise<mendix.lib.MxObject> {
     // BEGIN USER CODE
 
-    if (navigator && navigator.product === "ReactNative" && !navigator.geolocation) {
-        (navigator.geolocation as any) = Geolocation;
+    let rnGeolocation: GeolocationServiceStatic | GeolocationStatic;
+
+    if (navigator && navigator.product === "ReactNative") {
+        if (NativeModules.RNFusedLocation) {
+            const geolocationService = await import("react-native-geolocation-service");
+            rnGeolocation = geolocationService.default;
+        } else if (NativeModules.RNCGeolocation) {
+            rnGeolocation = Geolocation;
+        } else {
+            return Promise.reject(new Error("Geolocation module couldn't find"));
+        }
+    } else if (navigator && navigator.geolocation) {
+        rnGeolocation = navigator.geolocation;
+    } else {
+        return Promise.reject(new Error("Navigator couldn't find"));
     }
 
     return new Promise((resolve, reject) => {
@@ -44,7 +60,7 @@ export async function GetCurrentLocationMinimumAccuracy(
         // This action is only required while running in PWA or hybrid.
         if (navigator && (!navigator.product || navigator.product !== "ReactNative")) {
             // This ensures the browser will not ignore the maximumAge https://stackoverflow.com/questions/3397585/navigator-geolocation-getcurrentposition-sometimes-works-sometimes-doesnt/31916631#31916631
-            navigator.geolocation.getCurrentPosition(
+            rnGeolocation.getCurrentPosition(
                 // eslint-disable-next-line @typescript-eslint/no-empty-function
                 () => {},
                 // eslint-disable-next-line @typescript-eslint/no-empty-function
@@ -52,11 +68,12 @@ export async function GetCurrentLocationMinimumAccuracy(
                 {}
             );
         }
-        const watchId: number = navigator.geolocation.watchPosition(onSuccess, onError, options);
-        const timeStart = Date.now();
-        let lastAccruedPosition: GeolocationResponse;
 
-        function createGeolocationObject(position: GeolocationResponse): void {
+        const watchId: number = rnGeolocation.watchPosition(onSuccess, onError, options);
+        const timeStart = Date.now();
+        let lastAccruedPosition: GeolocationResponse | GeoPosition;
+
+        function createGeolocationObject(position: GeolocationResponse | GeoPosition): void {
             mx.data.create({
                 entity: "NanoflowCommons.Geolocation",
                 callback: mxObject => resolve(mapPositionToMxObject(mxObject, position)),
@@ -65,9 +82,9 @@ export async function GetCurrentLocationMinimumAccuracy(
             });
         }
 
-        function onSuccess(position: GeolocationResponse): void {
+        function onSuccess(position: GeolocationResponse | GeoPosition): void {
             if (watchId && (!minimumAccuracy || minimumAccuracy >= position.coords.accuracy)) {
-                navigator.geolocation.clearWatch(watchId);
+                rnGeolocation.clearWatch(watchId);
                 createGeolocationObject(position);
             } else {
                 if (!lastAccruedPosition || position.coords.accuracy < lastAccruedPosition.coords.accuracy) {
@@ -75,19 +92,25 @@ export async function GetCurrentLocationMinimumAccuracy(
                 }
                 const timeDiff = Date.now() - timeStart;
                 if (!timeout || timeout.lte(timeDiff)) {
-                    navigator.geolocation.clearWatch(watchId);
+                    rnGeolocation.clearWatch(watchId);
                     createGeolocationObject(lastAccruedPosition);
                 }
             }
         }
 
-        function onError(error: GeolocationError): void {
+        function onError(error: GeolocationError | GeoError): void {
             return reject(new Error(error.message));
         }
 
-        function getOptions(): GeolocationOptions {
-            const timeoutNumber = timeout && Number(timeout.toString());
+        function getOptions(): GeolocationOptions | GeoOptions {
+            let timeoutNumber = timeout && Number(timeout.toString());
             const maximumAgeNumber = maximumAge && Number(maximumAge.toString());
+
+            if (timeoutNumber === undefined && Platform.OS === "ios") {
+                timeoutNumber = 30000;
+            } else if (timeoutNumber === 0) {
+                timeoutNumber = 3600000;
+            }
 
             return {
                 timeout: timeoutNumber,
@@ -98,7 +121,7 @@ export async function GetCurrentLocationMinimumAccuracy(
 
         function mapPositionToMxObject(
             mxObject: mendix.lib.MxObject,
-            position: GeolocationResponse
+            position: GeolocationResponse | GeoPosition
         ): mendix.lib.MxObject {
             mxObject.set("Timestamp", new Date(position.timestamp));
             mxObject.set("Latitude", new Big(position.coords.latitude.toFixed(8)));

@@ -11,6 +11,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 ### Fixed
 - We fixed a bug where the `Speed` was not being defined while using `Get current location` action.
 - We removed some unwanted files from the module.
+- We fixed the timeout error while getting the current location.
 
 ## [2.1.2] Nanoflow Commons - 2021-10-25
 ### Fixed
