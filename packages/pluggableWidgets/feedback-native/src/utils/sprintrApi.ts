@@ -23,8 +23,8 @@ export async function sendToSprintr(data: {
             location: "",
             form: "",
             userAgent: `Native for ${Platform.OS}`,
-            screenWidth: Dimensions.get("window").width,
-            screenHeight: Dimensions.get("window").height
+            screenWidth: Math.round(Dimensions.get("window").width), // API receives whole number screenWidth
+            screenHeight: Math.round(Dimensions.get("window").height) // API receives whole number screenHeight
         },
         imageAttachment: data.screenshot
     };
