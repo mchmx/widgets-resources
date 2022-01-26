@@ -1,6 +1,6 @@
 import { Dimensions, Platform } from "react-native";
 
-const SPRINTR_FEEDBACK_BASE_URL = "https://feedback.api-test.mendix.com/rest/v3/feedbackapi";
+const SPRINTR_FEEDBACK_BASE_URL = "https://feedback-api.mendix.com/rest/v3/feedbackapi";
 
 export async function sendToSprintr(data: {
     feedbackMsg: string;
