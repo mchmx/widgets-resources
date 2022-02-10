@@ -1,7 +1,7 @@
 const { execSync } = require("child_process");
 const findFreePort = require("find-free-port");
 const fetch = require("node-fetch");
-const { join } = require("path");
+const { join, resolve } = require("path");
 const { cat, cp, ls, mkdir, rm, tempdir } = require("shelljs");
 const { pipeline } = require("stream");
 const { promisify } = require("util");
@@ -20,7 +20,8 @@ async function main() {
     const ghcr = process.env.CI && process.env.FORKED !== "true" ? "ghcr.io/mendix/widgets-resources/" : "";
 
     const testArchivePath = await getTestProject("https://github.com/mendix/Native-Mobile-Resources", "main");
-    const tempDir = join(__dirname, "../..", "testProject");
+    const root = resolve(join(__dirname, "../.."));
+    const tempDir = join(root, "testProject");
     try {
         mkdir("-p", tempDir);
         execSync(`unzip -o ${testArchivePath} -d ${tempDir}`);
@@ -28,6 +29,11 @@ async function main() {
     } catch (e) {
         throw new Error("Failed to unzip the test project into testProject", e.message);
     }
+
+    console.log("here");
+    console.log(tempDir);
+    console.log(ls(tempDir).toString());
+    console.log(ls(join(tempDir, "Native-Mobile-Resources-main").toString()));
 
     const output = execSync("npx lerna list --json --since origin/master --loglevel silent --scope '*-native'");
     const packages = JSON.parse(output);
@@ -48,6 +54,7 @@ async function main() {
 
     const existingImages = execSync(`docker image ls -q ${ghcr}mxbuild:${mendixVersion}`).toString().trim();
     const scriptsPath = join(process.cwd(), "packages/tools/pluggable-widget-tools/scripts");
+
     if (!existingImages) {
         console.log(`Creating new mxbuild docker image...`);
         execSync(
@@ -76,13 +83,10 @@ async function main() {
 
     // Build testProject via mxbuild
     // todo: this is ugly, look for a better solution
-    const projectFile = join(
-        tempDir,
-        "Native-Mobile-Resources-main",
-        ls(`${tempDir}/*`).find(file => file.endsWith(".mpr"))
-    );
+    const projectFile = "testProject/Native-Mobile-Resources-main/NativeComponentsTestProject.mpr";
+    console.log(root);
     execSync(
-        `docker run -t -v ${process.cwd()}:/source ` +
+        `docker run -t -v ${root}:/source ` +
             `--rm ${ghcr}mxbuild:${mendixVersion} bash -c "ls /source && mx update-widgets --loose-version-check /source/${projectFile} && mxbuild ` +
             `-o /tmp/automation.mda /source/${projectFile}"`,
         { stdio: "inherit" }
