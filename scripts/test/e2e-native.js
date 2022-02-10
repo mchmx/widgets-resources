@@ -2,11 +2,12 @@ const { execSync } = require("child_process");
 const findFreePort = require("find-free-port");
 const fetch = require("node-fetch");
 const { join } = require("path");
-const { cat, cp, ls, mkdir, rm } = require("shelljs");
+const { cat, cp, ls, mkdir, rm, tempdir } = require("shelljs");
 const { pipeline } = require("stream");
 const { promisify } = require("util");
 const { createWriteStream } = require("fs");
 const { tmpdir } = require("os");
+const nodeIp = require("ip");
 
 main().catch(e => {
     console.error(e);
@@ -15,15 +16,17 @@ main().catch(e => {
 
 async function main() {
     const mendixVersion = await getMendixVersion();
+    const ip = nodeIp.address();
     const ghcr = process.env.CI && process.env.FORKED !== "true" ? "ghcr.io/mendix/widgets-resources/" : "";
 
     const testArchivePath = await getTestProject("https://github.com/mendix/Native-Mobile-Resources", "main");
+    const tempDir = join(__dirname, "../..", "testProject");
     try {
-        mkdir("-p", "tests/testProject");
-        execSync(`unzip -o ${testArchivePath} -d tests/testProject`);
+        mkdir("-p", tempDir);
+        execSync(`unzip -o ${testArchivePath} -d ${tempDir}`);
         rm("-f", testArchivePath);
     } catch (e) {
-        throw new Error("Failed to unzip the test project into tests/testProject", e.message);
+        throw new Error("Failed to unzip the test project into testProject", e.message);
     }
 
     const output = execSync("npx lerna list --json --since origin/master --loglevel silent --scope '*-native'");
@@ -32,19 +35,25 @@ async function main() {
     execSync("npx lerna run release --since origin/master --scope '*-native'");
 
     packages.forEach(package => {
-        cp(`${package.location}/dist/*.mpk`, "tests/testProject/widgets");
+        // this is acceptable if there's one built version.
+        cp(`${package.location}/dist/**/*.mpk`, `${tempDir}/widgets`);
     });
 
+    // When running on CI pull the docker image from Github Container Registry
+
+    if (ghcr) {
+        console.log(`Pulling mxbuild docker image from Github Container Registry...`);
+        execSync(`docker pull ${ghcr}mxbuild:${mendixVersion}`);
+    }
+
     const existingImages = execSync(`docker image ls -q ${ghcr}mxbuild:${mendixVersion}`).toString().trim();
+    const scriptsPath = join(process.cwd(), "packages/tools/pluggable-widget-tools/scripts");
     if (!existingImages) {
         console.log(`Creating new mxbuild docker image...`);
         execSync(
-            `docker build -f ${join(
-                process.cwd(),
-                "packages/tools/pluggable-widget-tools/scripts/mxbuild.Dockerfile"
-            )}` +
+            `docker build -f ${join(scriptsPath, "/mxbuild.Dockerfile")}` +
                 `--build-arg MENDIX_VERSION=${mendixVersion} ` +
-                `-t mxbuild:${mendixVersion} ${__dirname}`,
+                `-t mxbuild:${mendixVersion} ${scriptsPath}`,
             { stdio: "inherit" }
         );
     }
@@ -58,21 +67,23 @@ async function main() {
     if (!existingRuntimeImages) {
         console.log(`Creating new runtime docker image...`);
         execSync(
-            `docker build -f ${join(
-                process.cwd(),
-                "packages/tools/pluggable-widget-tools/scripts/runtime.Dockerfile"
-            )} ` +
+            `docker build -f ${join(scriptsPath, "runtime.Dockerfile")} ` +
                 `--build-arg MENDIX_VERSION=${mendixVersion} ` +
-                `-t mxruntime:${mendixVersion} ${__dirname}`,
+                `-t mxruntime:${mendixVersion} ${scriptsPath}`,
             { stdio: "inherit" }
         );
     }
 
     // Build testProject via mxbuild
-    const projectFile = ls("tests/testProject/*.mpr").toString();
+    // todo: this is ugly, look for a better solution
+    const projectFile = join(
+        tempDir,
+        "Native-Mobile-Resources-main",
+        ls(`${tempDir}/*`).find(file => file.endsWith(".mpr"))
+    );
     execSync(
         `docker run -t -v ${process.cwd()}:/source ` +
-            `--rm ${ghcr}mxbuild:${mendixVersion} bash -c "mx update-widgets --loose-version-check /source/${projectFile} && mxbuild ` +
+            `--rm ${ghcr}mxbuild:${mendixVersion} bash -c "ls /source && mx update-widgets --loose-version-check /source/${projectFile} && mxbuild ` +
             `-o /tmp/automation.mda /source/${projectFile}"`,
         { stdio: "inherit" }
     );
@@ -80,6 +91,7 @@ async function main() {
 
     // Spin up the runtime and run testProject
     const freePort = await findFreePort(3000);
+    // todo: __dirname is wrong, should be widgets-resources/packages/tools/pluggable-widgets-tools/scripts
     const runtimeContainerId = execSync(
         `docker run -td -v ${process.cwd()}:/source -v ${__dirname}:/shared:ro -w /source -p ${freePort}:8080 ` +
             `-e MENDIX_VERSION=${mendixVersion} --entrypoint /bin/bash ` +
@@ -88,11 +100,27 @@ async function main() {
         .toString()
         .trim();
 
+    // wait until runtime is alive
+    let attempts = 60;
+    for (; attempts > 0; --attempts) {
+        try {
+            const response = await fetch(`http://${ip}:${freePort}`);
+            if (response.ok) {
+                break;
+            }
+        } catch (e) {
+            console.log(`Could not reach http://${ip}:${freePort}, trying again...`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 3000));
+    }
+
     try {
         if (attempts === 0) {
             throw new Error("Runtime didn't start in time, existing now...");
         }
-        console.log("Executing tests....");
+        const changedPackages = packages.map(package => package.name).join(" ");
+        execSync("npm run setup:android");
+        execSync(`lerna run test:e2e:local:android --stream --concurrency 1 --scope ${changedPackages}`);
     } catch (e) {
         try {
             execSync(`docker logs ${runtimeContainerId}`, { stdio: "inherit" });
@@ -101,7 +129,6 @@ async function main() {
         throw e;
     } finally {
         execSync(`docker rm -f ${runtimeContainerId}`);
-        execSync(`docker rm -f ${browserContainerId}`);
     }
 }
 
@@ -114,7 +141,9 @@ async function getTestProject(repository, branch) {
 
     try {
         await promisify(pipeline)(
-            (await fetch(`${repository}/archive/refs/heads/${branch}.zip`)).body,
+            (
+                await fetch(`${repository}/archive/refs/heads/${branch}.zip`)
+            ).body,
             createWriteStream(downloadedArchivePath)
         );
         return downloadedArchivePath;

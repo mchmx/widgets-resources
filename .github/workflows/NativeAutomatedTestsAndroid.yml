@@ -1,4 +1,4 @@
-name: Run native automated end-to-end tests
+name: Run native automated end-to-end tests for Android
 
 on:
     push:
@@ -10,8 +10,8 @@ on:
         paths: "packages/pluggableWidgets/*-native/**/*"
 
 jobs:
-    native_automated_tests:
-        name: "Native automated tests"
+    native_automated_tests_android:
+        name: "Native automated tests for Android"
         runs-on: ubuntu-latest
         permissions:
             packages: read
@@ -41,13 +41,13 @@ jobs:
               uses: actions/checkout@v2
               with:
                   submodules: false
-            - name: "Fetching master to compare"
-              if:
-                  github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name !=
-                  github.repository
-              run:
-                  git fetch --no-tags --prune --depth=1 origin +refs/heads/${{ github.base_ref
-                  }}:refs/remotes/origin/${{ github.base_ref }}
+            # - name: "Fetching master to compare"
+            #   if:
+            #       github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name !=
+            #       github.repository
+            #   run:
+            #       git fetch --no-tags --prune --depth=1 origin +refs/heads/${{ github.base_ref
+            #       }}:refs/remotes/origin/${{ github.base_ref }}
             # - name: "Defining environment variables"
             #   id: variables
             #   run:
