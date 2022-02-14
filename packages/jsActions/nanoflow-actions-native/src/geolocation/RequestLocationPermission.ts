@@ -6,7 +6,7 @@
 
 import { PermissionsAndroid, Platform, NativeModules, Linking, Alert, ToastAndroid } from "react-native";
 import Geolocation, { GeolocationStatic } from "@react-native-community/geolocation";
-import { GeolocationServiceStatic, AuthorizationResult } from "../../typings/Geolocation";
+import type { GeolocationServiceStatic, AuthorizationResult } from "../../typings/Geolocation";
 
 /**
  * On the native platform a request for permission should be made before the `GetCurrentLocation` action would work.
@@ -15,7 +15,7 @@ import { GeolocationServiceStatic, AuthorizationResult } from "../../typings/Geo
 export async function RequestLocationPermission(): Promise<boolean> {
     // BEGIN USER CODE
 
-    let rnGeolocation: GeolocationServiceStatic | GeolocationStatic;
+    let rnGeolocation: Geolocation | GeolocationStatic | GeolocationServiceStatic;
 
     if (navigator && navigator.product === "ReactNative") {
         if (NativeModules.RNFusedLocation) {
@@ -24,12 +24,12 @@ export async function RequestLocationPermission(): Promise<boolean> {
         } else if (NativeModules.RNCGeolocation) {
             rnGeolocation = Geolocation;
         } else {
-            return Promise.reject(new Error("Geolocation module couldn't find"));
+            return Promise.reject(new Error("Geolocation module could not be found"));
         }
     } else if (navigator && navigator.geolocation) {
         rnGeolocation = navigator.geolocation;
     } else {
-        return Promise.reject(new Error("Navigator couldn't find"));
+        return Promise.reject(new Error("Geolocation module could not be found"));
     }
 
     const hasPermissionIOS = async (): Promise<boolean> => {
@@ -39,30 +39,28 @@ export async function RequestLocationPermission(): Promise<boolean> {
             });
         };
 
-        if (!rnGeolocation?.requestAuthorization) {
-            return Promise.reject(new Error("requestAuthorization is undefined"));
-        }
+        return (rnGeolocation as GeolocationServiceStatic)
+            .requestAuthorization("whenInUse")
+            .then((status: AuthorizationResult) => {
+                if (status === "granted") {
+                    return true;
+                }
 
-        return rnGeolocation.requestAuthorization("whenInUse").then((status: AuthorizationResult) => {
-            if (status === "granted") {
-                return true;
-            }
+                if (status === "denied") {
+                    Alert.alert("Location permission denied.");
+                }
 
-            if (status === "denied") {
-                Alert.alert("Location permission denied.");
-            }
+                if (status === "disabled") {
+                    Alert.alert("Location Services must be enabled to determine your location.", "", [
+                        { text: "Go to Settings", onPress: openSetting },
+                        {
+                            text: "Don't Use Location"
+                        }
+                    ]);
+                }
 
-            if (status === "disabled") {
-                Alert.alert("Turn on Location Services to allow to determine your location.", "", [
-                    { text: "Go to Settings", onPress: openSetting },
-                    {
-                        text: "Don't Use Location"
-                    }
-                ]);
-            }
-
-            return false;
-        });
+                return false;
+            });
     };
 
     const hasPermissionAndroid = async (): Promise<boolean> => {
@@ -116,9 +114,9 @@ export async function RequestLocationPermission(): Promise<boolean> {
                           status => status === PermissionsAndroid.RESULTS.GRANTED
                       )
             );
-        } else if (rnGeolocation && rnGeolocation.requestAuthorization) {
+        } else if (rnGeolocation && (rnGeolocation as GeolocationStatic).requestAuthorization) {
             try {
-                rnGeolocation.requestAuthorization();
+                (rnGeolocation as GeolocationStatic).requestAuthorization();
                 return Promise.resolve(true);
             } catch (error) {
                 return Promise.reject(error);
@@ -134,7 +132,7 @@ export async function RequestLocationPermission(): Promise<boolean> {
         } else if (NativeModules.RNCGeolocation) {
             return hasLocationPermissionForOldLibrary();
         } else {
-            return Promise.reject(new Error("Module couldn't find"));
+            return Promise.reject(new Error("Geolocation module could not be found"));
         }
     }
 

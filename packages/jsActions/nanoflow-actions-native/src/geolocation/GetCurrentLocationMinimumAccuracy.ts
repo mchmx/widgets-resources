@@ -12,7 +12,7 @@ import Geolocation, {
     GeolocationResponse,
     GeolocationStatic
 } from "@react-native-community/geolocation";
-import { GeolocationServiceStatic, GeoError, GeoPosition, GeoOptions } from "../../typings/Geolocation";
+import type { GeolocationServiceStatic, GeoError, GeoPosition, GeoOptions } from "../../typings/Geolocation";
 
 /**
  * This action retrieves the current geographical position of a user/device with a minimum accuracy as parameter. If a position is not acquired with minimum accuracy within a specific timeout it will retrieve the last most precise location.
@@ -37,7 +37,7 @@ export async function GetCurrentLocationMinimumAccuracy(
 ): Promise<mendix.lib.MxObject> {
     // BEGIN USER CODE
 
-    let rnGeolocation: GeolocationServiceStatic | GeolocationStatic;
+    let rnGeolocation: Geolocation | GeolocationStatic | GeolocationServiceStatic;
 
     if (navigator && navigator.product === "ReactNative") {
         if (NativeModules.RNFusedLocation) {
@@ -46,12 +46,12 @@ export async function GetCurrentLocationMinimumAccuracy(
         } else if (NativeModules.RNCGeolocation) {
             rnGeolocation = Geolocation;
         } else {
-            return Promise.reject(new Error("Geolocation module couldn't find"));
+            return Promise.reject(new Error("Geolocation module could not be found"));
         }
     } else if (navigator && navigator.geolocation) {
         rnGeolocation = navigator.geolocation;
     } else {
-        return Promise.reject(new Error("Navigator couldn't find"));
+        return Promise.reject(new Error("Geolocation module could not be found"));
     }
 
     return new Promise((resolve, reject) => {
@@ -106,10 +106,15 @@ export async function GetCurrentLocationMinimumAccuracy(
             let timeoutNumber = timeout && Number(timeout.toString());
             const maximumAgeNumber = maximumAge && Number(maximumAge.toString());
 
-            if (timeoutNumber === undefined && Platform.OS === "ios") {
-                timeoutNumber = 30000;
-            } else if (timeoutNumber === 0) {
-                timeoutNumber = 3600000;
+            // If the timeout is 0 or undefined (empty), it causes a crash on iOS.
+            // If the timeout is undefined (empty); we set timeout to 30 sec (default timeout)
+            // If the timeout is 0; we set timeout to 1 hour (no timeout)
+            if (Platform.OS === "ios") {
+                if (timeoutNumber === undefined) {
+                    timeoutNumber = 30000;
+                } else if (timeoutNumber === 0) {
+                    timeoutNumber = 3600000;
+                }
             }
 
             return {
