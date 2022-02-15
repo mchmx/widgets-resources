@@ -8,6 +8,7 @@ const { promisify } = require("util");
 const { createWriteStream } = require("fs");
 const { tmpdir } = require("os");
 const nodeIp = require("ip");
+const { stat } = require("fs/promises");
 
 main().catch(e => {
     console.error(e);
@@ -40,10 +41,21 @@ async function main() {
 
     execSync("npx lerna run release --since origin/master --scope '*-native'");
 
-    packages.forEach(package => {
-        // this is acceptable if there's one built version.
-        cp(`${package.location}/dist/**/*.mpk`, `${tempDir}/widgets`);
+    packages.forEach(({ name, location }) => {
+        if (["mobile-resources-native", "nanoflow-actions-native"].includes(name)) {
+            // for js actions
+            const path = name === "mobile-resources-native" ? "nativemobileresources" : "nanoflowcommons";
+            const jsActionsPath = `${tempDir}/javascriptsource/actions/${path}`;
+            rm(jsActionsPath);
+            cp("-r", `${location}/dist`, jsActionsPath);
+        } else {
+            // for widgets
+            // this is acceptable if there's one built version.
+            cp(`${location}/dist/**/*.mpk`, `${tempDir}/widgets`);
+        }
     });
+
+    // todo: js actions
 
     // When running on CI pull the docker image from Github Container Registry
 
@@ -58,7 +70,7 @@ async function main() {
     if (!existingImages) {
         console.log(`Creating new mxbuild docker image...`);
         execSync(
-            `docker build -f ${join(scriptsPath, "/mxbuild.Dockerfile")}` +
+            `docker build -f ${join(scriptsPath, "mxbuild.Dockerfile")}` +
                 `--build-arg MENDIX_VERSION=${mendixVersion} ` +
                 `-t mxbuild:${mendixVersion} ${scriptsPath}`,
             { stdio: "inherit" }
@@ -85,6 +97,9 @@ async function main() {
     // todo: this is ugly, look for a better solution
     const projectFile = "testProject/Native-Mobile-Resources-main/NativeComponentsTestProject.mpr";
     console.log(root);
+    console.log("ls root");
+    console.log(ls(root).stdout);
+    console.log(await stat(`${root}/testProject`));
     execSync(
         `docker run -t -v ${root}:/source ` +
             `--rm ${ghcr}mxbuild:${mendixVersion} bash -c "ls /source && mx update-widgets --loose-version-check /source/${projectFile} && mxbuild ` +
