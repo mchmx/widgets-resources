@@ -218,8 +218,10 @@ function extractDataPoints(series: BarSeriesType, dataSourceItems?: ObjectItem[]
             // VictoryChart plots the dependent point (y) on the x axis. In order to align user configuration with
             // presentation, flip the points here. This means that special care must be taken elsewhere
             // in the implementation such as labels.
-            y: x.value instanceof Date || typeof x.value === "string" ? x.value : Number(x.value.toString()),
-            x: y.value instanceof Date || typeof y.value === "string" ? y.value : Number(y.value.toString())
+            //commented out by MC y: x.value instanceof Date || typeof x.value === "string" ? x.value : Number(x.value.toString()),
+            //commented out by MC x: y.value instanceof Date || typeof y.value === "string" ? y.value : Number(y.value.toString())
+            x: x.value instanceof Date || typeof x.value === "string" ? x.value : Number(x.value.toString()), //added for MC by MC
+            y: y.value instanceof Date || typeof y.value === "string" ? y.value : Number(y.value.toString()) //added for MC by MC
         } as any); // Cast as any because data types will never differ for data points within one series.
     }
 

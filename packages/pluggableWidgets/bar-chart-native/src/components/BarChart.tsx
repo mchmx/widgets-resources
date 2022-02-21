@@ -105,7 +105,7 @@ export function BarChart({
 
             return (
                 <VictoryBar
-                    horizontal
+                    //commented out by MC horizontal
                     key={index}
                     data={dataPoints}
                     width={barStyles.width}
@@ -232,7 +232,7 @@ export function BarChart({
                                     >
                                         <VictoryAxis
                                             orientation={"bottom"}
-                                            dependentAxis
+                                            //dependentAxis
                                             style={mapToAxisStyle(style.grid, style.xAxis)}
                                             {...(firstSeries?.xFormatter
                                                 ? { tickFormat: firstSeries.xFormatter }
@@ -241,6 +241,7 @@ export function BarChart({
                                         <VictoryAxis
                                             style={mapToAxisStyle(style.grid, style.yAxis)}
                                             orientation={"left"}
+                                            dependentAxis //added MC
                                             {...(firstSeries?.yFormatter
                                                 ? { tickFormat: firstSeries.yFormatter }
                                                 : undefined)}
